@@ -7,7 +7,8 @@ import tempfile
 from db import MariaDBConnection
 from app import app as face_app, find_similar_in_db, find_profile_in_db
 from dotenv import load_dotenv
-import os 
+import os
+import uuid
 
 app = FastAPI()
 
@@ -31,12 +32,14 @@ db.connect()
 
 @app.post("/search-face/")
 async def search_face(file: UploadFile = File(...), threshold: float = 0.65):
-    # Save uploaded file to a temporary location
+    # Save uploaded file to a temporary location in the current project folder
+    tmp_filename = f"tmp_{uuid.uuid4().hex}.jpg"
+    tmp_path = os.path.join(os.getcwd(), tmp_filename)
     try:
         contents = await file.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+        with open(tmp_path, "wb") as tmp:
             tmp.write(contents)
-            tmp_path = tmp.name
+        print(f"Temporary file saved at: {tmp_path}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to process uploaded file: {str(e)}")
 
@@ -55,6 +58,9 @@ async def search_face(file: UploadFile = File(...), threshold: float = 0.65):
         return JSONResponse(content={"matches": results})
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error during face search: {str(e)}")
-    
-    
-    # uvicorn api:app --host 0.0.0.0 --port 8000 --ssl-keyfile ./certs/key.pem --ssl-certfile ./certs/cert.pem --reload
+    finally:
+        # Delete the temporary file after use
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+            
+ # uvicorn api:app --host 0.0.0.0 --port 8000 --ssl-keyfile ./certs/key.pem --ssl-certfile ./certs/cert.pem --reload
