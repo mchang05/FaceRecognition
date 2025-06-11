@@ -1,0 +1,65 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.log
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# VSCode
+.vscode/
+.history/
+
+# Environment
+.env
+.venv/
+venv/
+ENV/
+env/
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# FastAPI/Temp files
+*.db
+*.sqlite3
+*.sqlite
+*.tmp
+*.bak
+
+# Certificates/Keys (do not commit SSL keys!)
+*.pem
+*.crt
+*.key
+
+# Images/Output
+output/
+*.jpg
+*.png
+
+# Test/coverage
+htmlcov/
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# MariaDB dumps
+*.sql
+
+# Misc
+*.swp
+*.swo
