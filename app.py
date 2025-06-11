@@ -202,7 +202,7 @@ def find_profile_in_db(img_path, db, threshold=0.6):
 
 # Example usage:
 if __name__ == "__main__":
-    db = MariaDBConnection(user='root', password='desa666', database='facerecognition')
+    db = MariaDBConnection()
     db.connect()
     # find_similar_in_db('gdc-profile/LinLingToh.jpg', db, threshold=0.65)
     # store_conference_embeddings('conference', db)

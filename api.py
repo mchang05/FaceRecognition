@@ -6,8 +6,15 @@ import cv2
 import tempfile
 from db import MariaDBConnection
 from app import app as face_app, find_similar_in_db, find_profile_in_db
+from dotenv import load_dotenv
+import os 
 
 app = FastAPI()
+
+load_dotenv()
+db_password = os.getenv("DB_PASSWORD")
+db_user = os.getenv("DB_USER")
+db_name = os.getenv("DB_NAME")
 
 # Add this before defining your routes
 app.add_middleware(
@@ -17,9 +24,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+print(db_password, db_user)
 # Initialize DB connection (adjust credentials as needed)
-db = MariaDBConnection(user='root', password='desa666', database='facerecognition')
+db = MariaDBConnection(user=db_user, password=db_password, database=db_name)
 db.connect()
 
 @app.post("/search-face/")
