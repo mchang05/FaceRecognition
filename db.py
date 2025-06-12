@@ -1,11 +1,14 @@
 import mariadb
+import os
+from dotenv import load_dotenv
 
 class MariaDBConnection:
-    def __init__(self, host='localhost', user='root', password='', database=None):
+    def __init__(self, host="localhost"):
+        load_dotenv()
         self.host = host
-        self.user = user
-        self.password = password
-        self.database = database
+        self.user = os.getenv("DB_USER")
+        self.password = os.getenv("DB_PASSWORD")
+        self.database = os.getenv("DB_NAME")
         self.conn = None
         self.cursor = None
 

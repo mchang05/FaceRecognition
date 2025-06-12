@@ -4,6 +4,7 @@ import cv2
 import os
 from db import MariaDBConnection
 
+
 app = FaceAnalysis(name='buffalo_l', providers=['CUDAExecutionProvider'])
 app.prepare(ctx_id=0)
 
@@ -204,9 +205,9 @@ def find_profile_in_db(img_path, db, threshold=0.6):
 if __name__ == "__main__":
     db = MariaDBConnection()
     db.connect()
-    # find_similar_in_db('gdc-profile/LinLingToh.jpg', db, threshold=0.65)
+    find_similar_in_db('gdc-profile/JackyChan.jpg', db, threshold=0.65)
     # store_conference_embeddings('conference', db)
-    store_gdc_profile_embeddings('gdc-profile', db)
+    # store_gdc_profile_embeddings('gdc-profile', db)
     db.close()
     
     # result = is_same_person('gdc-profile/AlisaSimaroj.jpg', 'conference/20250219_AIA01752.jpg')

@@ -6,3 +6,5 @@ mariadb
 insightface
 python-multipart
 requests
+onnxruntime-gpu
+python-dotenv
