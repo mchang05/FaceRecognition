@@ -1,14 +1,29 @@
+from time import time
 from insightface.app import FaceAnalysis
 import numpy as np
 import cv2
 import os
 from db import MariaDBConnection
+import time
 
+# Remove this global instance - it causes threading issues
+# app = FaceAnalysis(name='buffalo_l', providers=['CUDAExecutionProvider'])
+# app.prepare(ctx_id=0)
 
-app = FaceAnalysis(name='buffalo_l', providers=['CUDAExecutionProvider'])
-app.prepare(ctx_id=0)
+def get_face_app():
+    """Get a face analysis instance - each call creates a new one if needed"""
+    try:
+        app = FaceAnalysis(name='buffalo_l', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        app.prepare(ctx_id=0)
+        return app
+    except:
+        app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
+        app.prepare(ctx_id=-1)
+        return app
 
+# Update all your functions to accept app parameter or create instance locally
 def is_same_person(img1_path, img2_path, threshold=0.6):
+    app = get_face_app()
     img1 = cv2.imread(img1_path)
     img2 = cv2.imread(img2_path)
     faces1 = app.get(img1)
@@ -36,6 +51,7 @@ def is_same_person(img1_path, img2_path, threshold=0.6):
 
 
 def compare_and_draw(s_path, conference_folder, output_folder, threshold=0.35):
+    app = get_face_app()
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
@@ -78,6 +94,7 @@ def compare_and_draw(s_path, conference_folder, output_folder, threshold=0.35):
             print(f"No match found in {fname}")
 
 def store_conference_embeddings(conference_folder, db):
+    app = get_face_app()
     """
     Process all images in conference folder and store face embeddings in database
     """
@@ -104,6 +121,7 @@ def store_conference_embeddings(conference_folder, db):
                 print(f"Error storing {fname}: {str(e)}")
 
 def store_gdc_profile_embeddings(profile_folder, db):
+    app = get_face_app()
     """
     Process all images in the profile folder and store the largest face embedding in the database.
     Only the largest face (by area) in each image is stored.
@@ -132,6 +150,7 @@ def store_gdc_profile_embeddings(profile_folder, db):
             print(f"Error storing {fname}: {str(e)}")
 
 def find_similar_in_db(img_path, db, threshold=0.6):
+    app = get_face_app()
     """
     Compare the embedding of img_path to all embeddings in the database.
     Prints matches above the threshold.
@@ -162,6 +181,7 @@ def find_similar_in_db(img_path, db, threshold=0.6):
     return matches
 
 def find_profile_in_db(img_path, db, threshold=0.6):
+    app = get_face_app()
     """
     Compare the embedding of img_path to all embeddings in the database.
     Prints matches above the threshold.
@@ -202,6 +222,7 @@ def find_profile_in_db(img_path, db, threshold=0.6):
     return matches, str(largest_face.bbox.tolist())
 
 def get_embbeding(img_path):
+    app = get_face_app()
     
     img = cv2.imread(img_path)
     faces = app.get(img)

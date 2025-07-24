@@ -1,48 +1,137 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import numpy as np
 import cv2
-import tempfile
-from db import MariaDBConnection
-from app import app as face_app, find_similar_in_db, find_profile_in_db, get_embbeding
-from dotenv import load_dotenv
 import os
 import uuid
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import threading
+from contextlib import asynccontextmanager
+from db import MariaDBConnection
+from datetime import datetime
+
+# Thread-local storage for face analysis instances
+thread_local = threading.local()
+
+def get_face_app():
+    """Get thread-local face analysis instance"""
+    if not hasattr(thread_local, 'face_app'):
+        try:
+            from insightface.app import FaceAnalysis
+            thread_local.face_app = FaceAnalysis(name='buffalo_l', providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+            thread_local.face_app.prepare(ctx_id=0)
+            print("Using CUDA for face analysis")
+        except Exception as e:
+            print(f"CUDA failed, falling back to CPU: {e}")
+            from insightface.app import FaceAnalysis
+            thread_local.face_app = FaceAnalysis(name='buffalo_l', providers=['CPUExecutionProvider'])
+            thread_local.face_app.prepare(ctx_id=-1)
+            print("Using CPU for face analysis")
+    return thread_local.face_app
+
+# Thread pool for CPU-intensive face processing
+executor = ThreadPoolExecutor(max_workers=4)
 
 app = FastAPI()
 
-
-
-# Add this before defining your routes
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Or specify your frontend URL, e.g. ["https://192.168.0.189:8080"]
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# Initialize DB connection (adjust credentials as needed)
-db = MariaDBConnection()
-db.connect()
+
+def get_db():
+    """Dependency to get a fresh database connection for each request"""
+    db = MariaDBConnection()
+    try:
+        db.connect()
+        yield db
+    finally:
+        db.close()
+
+# Create uploads directory if it doesn't exist
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+def find_profile_in_db_threaded(img_path, db, threshold=0.6):
+    """Thread-safe version of find_profile_in_db"""
+    face_app = get_face_app()
+    
+    img = cv2.imread(img_path)
+    faces = face_app.get(img)
+    if not faces:
+        print("No face detected in query image.")
+        return [], []
+
+    largest_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+    print(f"Largest face bbox: {largest_face.bbox.tolist()}")
+    query_emb = largest_face.embedding
+    matches = []
+
+    # Use MariaDB vector search
+    db.execute(
+        """SELECT id, name, embedding, bbox, VEC_DISTANCE_COSINE(embedding, VEC_FromText(?)) as distance 
+           FROM users 
+           WHERE VEC_DISTANCE_COSINE(embedding, VEC_FromText(?)) < ? 
+           ORDER BY distance""",
+        (str(query_emb.tolist()), str(query_emb.tolist()), threshold)
+    )
+    for row in db.cursor:
+        print(row['name'], row['distance'])
+        matches.append(row)
+
+    if not matches:
+        print("No similar faces found in database.")
+        fake_row = {
+            'id': None,
+            'name': 'unknown',
+            'embedding': None,
+            'bbox': str(largest_face.bbox.tolist()),
+            'distance': 0
+        }
+        matches.append(fake_row)
+    return matches, str(largest_face.bbox.tolist())
+
+def get_embedding_threaded(img_path):
+    """Thread-safe version of get_embedding"""
+    face_app = get_face_app()
+    
+    img = cv2.imread(img_path)
+    faces = face_app.get(img)
+    if not faces:
+        print("No face detected in query image.")
+        return None
+
+    largest_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+    return largest_face.embedding.tolist()
 
 @app.post("/search-face/")
-async def search_face(file: UploadFile = File(...), threshold: float = 0.65):
-    # Save uploaded file to a temporary location in the current project folder
-    tmp_filename = f"tmp_{uuid.uuid4().hex}.jpg"
-    tmp_path = os.path.join(os.getcwd(), tmp_filename)
+async def search_face(file: UploadFile = File(...), threshold: float = 0.65, db = Depends(get_db)):
+    # Generate unique filename
+    file_extension = os.path.splitext(file.filename)[1] or ".jpg"
+    unique_filename = f"{uuid.uuid4()}{file_extension}"
+    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    
+    # Save file
+    contents = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(contents)
+    
     try:
-        contents = await file.read()
-        with open(tmp_path, "wb") as tmp:
-            tmp.write(contents)
-        print(f"Temporary file saved at: {tmp_path}")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to process uploaded file: {str(e)}")
-
-    # Use find_similar_in_db to search for similar faces
-    try:
-        matches, bbox = find_profile_in_db(tmp_path, db, threshold=threshold)
-        # Format results for JSON response
+        # Run face processing in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        matches, bbox = await loop.run_in_executor(
+            executor, 
+            find_profile_in_db_threaded, 
+            file_path, 
+            db, 
+            threshold
+        )
+        
         results = [
             {
                 "name": row['name'],
@@ -55,33 +144,38 @@ async def search_face(file: UploadFile = File(...), threshold: float = 0.65):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error during face search: {str(e)}")
     finally:
-        # Delete the temporary file after use
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-            
-@app.post("/get_embed/")
-async def get_embed(file: UploadFile = File(...), threshold: float = 0.65):
-    # Save uploaded file to a temporary location in the current project folder
-    tmp_filename = f"tmp_{uuid.uuid4().hex}.jpg"
-    tmp_path = os.path.join(os.getcwd(), tmp_filename)
-    try:
-        contents = await file.read()
-        with open(tmp_path, "wb") as tmp:
-            tmp.write(contents)
-        print(f"Temporary file saved at: {tmp_path}")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to process uploaded file: {str(e)}")
+        # Clean up - remove file after processing
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
-    # Use find_similar_in_db to search for similar faces
+@app.post("/get_embed/")
+async def get_embed(file: UploadFile = File(...), db = Depends(get_db)):
+    # Generate unique filename
+    file_extension = os.path.splitext(file.filename)[1] or ".jpg"
+    unique_filename = f"{uuid.uuid4()}{file_extension}"
+    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    
+    # Save file
+    contents = await file.read()
+    with open(file_path, "wb") as f:
+        f.write(contents)
+    
     try:
-        embedding = get_embbeding(tmp_path)
-        # Format results for JSON response
+        # Run face processing in thread pool
+        loop = asyncio.get_event_loop()
+        embedding = await loop.run_in_executor(
+            executor, 
+            get_embedding_threaded, 
+            file_path
+        )
         return JSONResponse(content={"embed": embedding})
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error during face search: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error during face processing: {str(e)}")
     finally:
-        # Delete the temporary file after use
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-            
- # uvicorn api:app --host 0.0.0.0 --port 8000 --ssl-keyfile ./certs/key.pem --ssl-certfile ./certs/cert.pem --reload
+        # Clean up - remove file after processing
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

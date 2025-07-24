@@ -1,0 +1,9 @@
+Select template runpod pytorch 2.8
+Edit Pod, expose http port 8000
+Click Connnect
+Click HTTP Service 8000
+https://ugw05saya8hbn5-8000.proxy.runpod.net/
+
+
+VSC SSH REMOTE
+Remote-SSH - Connect To Host
