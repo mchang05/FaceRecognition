@@ -178,4 +178,21 @@ async def get_embed(file: UploadFile = File(...), db = Depends(get_db)):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    
+    # SSL configuration
+    ssl_keyfile = "certs/key.pem"
+    ssl_certfile = "certs/cert.pem"
+    
+    # Check if SSL files exist
+    if os.path.exists(ssl_keyfile) and os.path.exists(ssl_certfile):
+        print("Starting server with HTTPS on port 8443...")
+        uvicorn.run(
+            app, 
+            host="0.0.0.0", 
+            port=8000,  # Standard HTTPS port alternative
+            ssl_keyfile=ssl_keyfile,
+            ssl_certfile=ssl_certfile
+        )
+    else:
+        print("SSL certificates not found, starting with HTTP...")
+        uvicorn.run(app, host="0.0.0.0", port=8000)
