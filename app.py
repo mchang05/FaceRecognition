@@ -121,33 +121,97 @@ def store_conference_embeddings(conference_folder, db):
                 print(f"Error storing {fname}: {str(e)}")
 
 def store_gdc_profile_embeddings(profile_folder, db):
-    app = get_face_app()
     """
     Process all images in the profile folder and store the largest face embedding in the database.
     Only the largest face (by area) in each image is stored.
+    Measures and prints timing for each step.
     """
+    app = get_face_app()
+    
+    # Overall timing
+    total_start_time = time.time()
+    total_files = 0
+    total_faces_detected = 0
+    
+    print(f"🚀 Starting profile embedding conversion for folder: {profile_folder}")
+    print("=" * 80)
+    
     for fname in os.listdir(profile_folder):
         if not (fname.lower().endswith('.jpg') or fname.lower().endswith('.png')):
             continue
 
+        total_files += 1
+        file_start_time = time.time()
+        
+        # Step 1: Load image
+        load_start = time.time()
         img_path = os.path.join(profile_folder, fname)
         img = cv2.imread(img_path)
+        load_time = time.time() - load_start
+        
+        # Step 2: Face detection and embedding
+        detection_start = time.time()
         faces = app.get(img)
+        detection_time = time.time() - detection_start
 
         if not faces:
-            print(f"No face detected in {fname}")
+            file_time = time.time() - file_start_time
+            print(f"❌ {fname:<25} | No face detected | Total: {file_time:.3f}s")
             continue
 
-        # Find the largest face by area
+        total_faces_detected += 1
+        
+        # Step 3: Find largest face
+        processing_start = time.time()
         largest_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+        face_area = (largest_face.bbox[2] - largest_face.bbox[0]) * (largest_face.bbox[3] - largest_face.bbox[1])
+        processing_time = time.time() - processing_start
 
+        # Step 4: Database storage
+        db_start = time.time()
         try:
             query = "INSERT INTO users (name, embedding, bbox) VALUES (?, VEC_FromText(?), ?)"
             db.execute(query, (fname, str(largest_face.embedding.tolist()), str(largest_face.bbox.tolist())))
             db.commit()
-            print(f"Stored largest face embedding from {fname}")
+            db_time = time.time() - db_start
+            
+            # Total time for this file
+            file_time = time.time() - file_start_time
+            
+            print(f"✅ {fname:<25} | "
+                  f"Load: {load_time:.3f}s | "
+                  f"Detect: {detection_time:.3f}s | "
+                  f"Process: {processing_time:.3f}s | "
+                  f"DB: {db_time:.3f}s | "
+                  f"Total: {file_time:.3f}s | "
+                  f"Area: {face_area:.0f}px")
+            
         except Exception as e:
-            print(f"Error storing {fname}: {str(e)}")
+            db_time = time.time() - db_start
+            file_time = time.time() - file_start_time
+            print(f"❌ {fname:<25} | Error storing: {str(e)[:50]}... | Time: {file_time:.3f}s")
+
+    # Summary statistics
+    total_time = time.time() - total_start_time
+    
+    print("=" * 80)
+    print(f"📊 PERFORMANCE SUMMARY")
+    print("=" * 80)
+    print(f"Total files processed: {total_files}")
+    print(f"Faces successfully detected: {total_faces_detected}")
+    print(f"Success rate: {(total_faces_detected/total_files*100):.1f}%" if total_files > 0 else "No files processed")
+    print(f"Total processing time: {total_time:.3f}s")
+    print(f"Average time per file: {(total_time/total_files):.3f}s" if total_files > 0 else "N/A")
+    print(f"Average time per successful detection: {(total_time/total_faces_detected):.3f}s" if total_faces_detected > 0 else "N/A")
+    print(f"Processing speed: {(total_files/total_time):.2f} files/second" if total_time > 0 else "N/A")
+    
+    return {
+        "total_files": total_files,
+        "successful_detections": total_faces_detected,
+        "total_time": total_time,
+        "avg_time_per_file": total_time/total_files if total_files > 0 else 0,
+        "files_per_second": total_files/total_time if total_time > 0 else 0
+    }
 
 def find_similar_in_db(img_path, db, threshold=0.6):
     app = get_face_app()
@@ -237,9 +301,9 @@ def get_embbeding(img_path):
 if __name__ == "__main__":
     db = MariaDBConnection()
     db.connect()
-    find_similar_in_db('gdc-profile/JackyChan.jpg', db, threshold=0.65)
+    find_profile_in_db('test.jpg', db, threshold=0.65)
     # store_conference_embeddings('conference', db)
-    # store_gdc_profile_embeddings('gdc-profile', db)
+    # store_gdc_profile_embeddings('test', db)
     db.close()
     
     # result = is_same_person('gdc-profile/AlisaSimaroj.jpg', 'conference/20250219_AIA01752.jpg')
