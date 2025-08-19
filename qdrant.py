@@ -197,13 +197,13 @@ def search_similar_faces(query_image_path, limit=5, score_threshold=0.3):
         
         total_search_time = time.time() - search_start_time
         
-        # print(f"⏱️  Search Performance:")
-        # print(f"   Load image: {load_time:.3f}s")
-        # print(f"   Face detection: {detection_time:.3f}s") 
-        # print(f"   Processing: {processing_time:.3f}s")
-        # print(f"   Database search: {db_search_time:.3f}s")
-        # print(f"   Total search time: {total_search_time:.3f}s")
-        # print(f"   Found {len(results)} matches")
+        print(f"⏱️  Search Performance:")
+        print(f"   Load image: {load_time:.3f}s")
+        print(f"   Face detection: {detection_time:.3f}s") 
+        print(f"   Processing: {processing_time:.3f}s")
+        print(f"   Database search: {db_search_time:.3f}s")
+        print(f"   Total search time: {total_search_time:.3f}s")
+        print(f"   Found {len(results)} matches")
             
         return results
         

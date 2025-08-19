@@ -82,83 +82,28 @@ qdrant_client = QdrantClient(
 )
 
 def search_similar_faces_threaded(img_path, limit=5, score_threshold=0.6):
-    """
-    Thread-safe version of search_similar_faces for Qdrant
-    """
-    # face_app = get_face_app()
-    
-    # # Load and process query image
-    # img = cv2.imread(img_path)
-    # if img is None:
-    #     print(f"Could not read query image: {img_path}")
-    #     return [], None
-        
-    # faces = face_app.get(img)
-    # if not faces:
-    #     print("No face detected in query image")
-    #     return [], None
-    
-    # # Use the largest face for query
-    # largest_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
-    # query_embedding = largest_face.embedding.tolist()
-    # bbox = largest_face.bbox.tolist()
     
     try:
         search_results = search_similar_faces(img_path, limit=limit, score_threshold=score_threshold)
         print(search_results)
-    #     # Search in Qdrant
-        
-    #     search_results = qdrant_client.query_points(
-    #         collection_name="face_embeddings",
-    #         query=query_embedding,
-    #         limit=limit,
-    #         score_threshold=score_threshold,
-            
-    #     ).points
-        
-        
-        
-    #     if not search_results:
-    #         print("No similar faces found in Qdrant database.")
-    #         # Return unknown result
-    #         fake_result = {
-    #             'person_name': 'unknown',
-    #             'similarity_score': 0.0,
-    #             'bbox': bbox,
-    #             'filename': 'unknown'
-    #         }
-    #         return [fake_result], bbox
-        
-    #     results = []
-            
-    #     for hit in search_results:
-    #         results.append({
-    #             "id": hit.id,
-    #             "person_name": hit.payload.get("person_name"),
-    #             "filename": hit.payload.get("filename"),
-    #             "similarity_score": float(hit.score),
-    #             "bbox": hit.payload.get("bbox"),
-    #             "image_path": hit.payload.get("image_path"),
-    #             "confidence": hit.payload.get("confidence")
-    #         })
-    #         print(f"Found: {hit.payload.get('person_name')} with score: {hit.score}")
+    
             
         return search_results
         
     except Exception as e:
         print(f"❌ Error searching faces in Qdrant: {e}")
-        # Return unknown result on error
-        fake_result = {
-            'person_name': 'unknown',
-            'similarity_score': 0.0,
-            'bbox': bbox,
-            'filename': 'unknown'
-        }
-        return [fake_result], bbox
+        # # Return unknown result on error
+        # fake_result = {
+        #     'person_name': 'unknown',
+        #     'similarity_score': 0.0,
+        #     'bbox': bbox,
+        #     'filename': 'unknown'
+        # }
+        # return [fake_result], bbox
 
             
 @app.post("/search-face/")
-async def search_face(file: UploadFile = File(...), threshold: float = 0.6, limit: int = 5):
+async def search_face(file: UploadFile = File(...), threshold: float = 0.4, limit: int = 5):
     """
     Search for similar faces using Qdrant vector database
     
