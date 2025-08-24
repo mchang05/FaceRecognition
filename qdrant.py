@@ -21,32 +21,59 @@ def get_face_app():
     
     return app
 
-def create_qdrant_collection():
-    """Create Qdrant collection for face embeddings"""
+def create_collection(collection_name: str):
+    client.create_collection(
+        collection_name=collection_name,
+        vectors_config=VectorParams(size=512, distance=Distance.COSINE),
+        quantization_config=models.ScalarQuantization(
+            scalar=models.ScalarQuantizationConfig(
+                type=models.ScalarType.INT8,
+                always_ram=True,
+            ),
+        ),
+    )
+    print(f"✅ Created '{collection_name}' collection")
+
+
+
+def get_embedding(img_path):
+    img = cv2.imread(img_path)
+
+    faces = app.get(img)
+    if not faces:
+        # Try again with padding if no face detected
+        padding = 300
+        padded_img = cv2.copyMakeBorder(
+            img,
+            padding, padding, padding, padding,
+            cv2.BORDER_CONSTANT,
+            value=[0, 0, 0]
+        )
+        faces = app.get(padded_img)
+        if not faces:
+            with open("face_detection.log", "a") as log_file:
+                log_file.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {img_path}: No face detected after padding\n\n")
+            print("No face detected after padding")
+            return None
+
+    # Process largest face
+    largest_face = max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
+    return largest_face
+
+
+def store_db(collection_name, batch_points):
     try:
-        # Check if collection already exists
-        collections = client.get_collections()
-        collection_names = [col.name for col in collections.collections]
-        
-        if "face_embeddings" not in collection_names:
-            client.create_collection(
-                collection_name="face_embeddings",
-                vectors_config=VectorParams(size=512, distance=Distance.COSINE),
-                quantization_config=models.ScalarQuantization(
-                    scalar=models.ScalarQuantizationConfig(
-                        type=models.ScalarType.INT8,
-                        always_ram=True,
-                    ),
-                ),
-            )
-            print("✅ Created 'face_embeddings' collection")
-        else:
-            print("✅ Collection 'face_embeddings' already exists")
-            
-        return True
+        client.upsert(collection_name=collection_name, points=batch_points)
     except Exception as e:
-        print(f"❌ Failed to create collection: {e}")
-        return False
+        print(f"❌ Failed to store batch in DB: {e}")
+
+def clear_points(collection_name):
+    
+    try:
+        client.delete(collection_name=collection_name, points_selector=models.PointIdsList(points=[]))
+        print(f"✅ Cleared all points from '{collection_name}'")
+    except Exception as e:
+        print(f"❌ Failed to clear points from DB: {e}")
 
 def store_gdc_profile_embeddings(profile_folder, batch_size=100):
     """
@@ -68,7 +95,7 @@ def store_gdc_profile_embeddings(profile_folder, batch_size=100):
     
     # First pass: collect all valid files
     valid_files = [f for f in os.listdir(profile_folder) 
-                   if f.lower().endswith(('.jpg', '.png'))]
+                   if f.lower().endswith(('.jpg', '.png', '.webp'))]
     
     print(f"📋 Found {len(valid_files)} image files to process")
     
@@ -141,7 +168,7 @@ def store_gdc_profile_embeddings(profile_folder, batch_size=100):
     print(f"Speed: {len(processed_files)/total_time:.2f} embeddings/second")
     print(f"Batch size used: {batch_size}")
 
-def search_similar_faces(query_image_path, limit=5, score_threshold=0.3):
+def search_similar_faces(collection_name, query_image_path, limit=5, score_threshold=0.3):
     """
     Search for similar faces in the Qdrant database
     """
@@ -175,7 +202,7 @@ def search_similar_faces(query_image_path, limit=5, score_threshold=0.3):
         # Search in Qdrant
         db_search_start = time.time()
         search_results = client.query_points(
-            collection_name="face_embeddings",
+            collection_name=collection_name,
             query=query_embedding,
             limit=limit,
             score_threshold=score_threshold,
@@ -187,12 +214,9 @@ def search_similar_faces(query_image_path, limit=5, score_threshold=0.3):
         for hit in search_results:
             results.append({
                 "id": hit.id,
-                "person_name": hit.payload.get("person_name"),
-                "filename": hit.payload.get("filename"),
+                "name": hit.payload.get("name"),
                 "similarity_score": float(hit.score),
-                "bbox": hit.payload.get("bbox"),
-                "image_path": hit.payload.get("image_path"),
-                "confidence": hit.payload.get("confidence")
+                "photo_path": hit.payload.get("photo")
             })
         
         total_search_time = time.time() - search_start_time
@@ -217,18 +241,7 @@ def search_similar_faces(query_image_path, limit=5, score_threshold=0.3):
         print(f"❌ Error searching faces: {e}")
         return []
 
-def get_collection_stats():
-    """Get statistics about the face embeddings collection"""
-    try:
-        info = client.get_collection("face_embeddings")
-        print(f"\n📊 Collection Statistics:")
-        print(f"   • Total points: {info.points_count}")
-        print(f"   • Indexed vectors: {info.indexed_vectors_count}")
-        print(f"   • Status: {info.status}")
-        return info
-    except Exception as e:
-        print(f"❌ Error getting collection stats: {e}")
-        return None
+
     
 def clear_all_collections():
     """
@@ -262,61 +275,11 @@ def clear_all_collections():
         print(f"❌ Error clearing collections: {e}")
         return False
 
-def clear_face_embeddings_collection():
-    """
-    Clear only the face_embeddings collection (delete all points but keep collection structure)
-    """
-    try:
-        # Check if collection exists
-        collections = client.get_collections()
-        collection_names = [col.name for col in collections.collections]
-        
-        if "face_embeddings" not in collection_names:
-            print("📭 Collection 'face_embeddings' does not exist")
-            return True
-        
-        # Get collection info before deletion
-        info = client.get_collection("face_embeddings")
-        points_count = info.points_count
-        
-        if points_count == 0:
-            print("📭 Collection 'face_embeddings' is already empty")
-            return True
-        
-        # Delete all points from the collection
-        client.delete(
-            collection_name="face_embeddings",
-            points_selector=True  # This deletes all points
-        )
-        
-        print(f"🗑️  Cleared {points_count} points from 'face_embeddings' collection")
-        print("✅ Collection structure preserved, all embeddings removed")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Error clearing face_embeddings collection: {e}")
-        return False
 
-def reset_database():
-    """
-    Complete database reset - delete all collections and recreate face_embeddings
-    """
-    print("🔄 Resetting Qdrant database...")
-    
-    # Clear all collections
-    if clear_all_collections():
-        # Recreate the face_embeddings collection
-        if create_qdrant_collection():
-            print("✅ Database reset complete - ready for new embeddings")
-            return True
-        else:
-            print("❌ Failed to recreate face_embeddings collection")
-            return False
-    else:
-        print("❌ Failed to clear collections")
-        return False
 
-def list_all_points(collection_name="face_embeddings", limit=None, offset=0):
+
+
+def list_all_points(collection_name, limit=None, offset=0):
     """
     List all points in the collection with their metadata
     
@@ -349,10 +312,10 @@ def list_all_points(collection_name="face_embeddings", limit=None, offset=0):
         if limit is None:
             limit = total_points
         
-        print(f"📋 Listing points from collection '{collection_name}'")
-        print(f"   Total points in collection: {total_points}")
-        print(f"   Retrieving: {min(limit, total_points - offset)} points (offset: {offset})")
-        print("=" * 80)
+        # print(f"📋 Listing points from collection '{collection_name}'")
+        # print(f"   Total points in collection: {total_points}")
+        # print(f"   Retrieving: {min(limit, total_points - offset)} points (offset: {offset})")
+        # print("=" * 80)
         
         # Scroll through all points
         points = client.scroll(
@@ -371,18 +334,12 @@ def list_all_points(collection_name="face_embeddings", limit=None, offset=0):
                 "payload": point.payload
             }
             point_list.append(point_data)
-            
+            print(point_data)
             # Print point information
             payload = point.payload
-            print(f"{i:3d}. ID: {point.id}")
-            print(f"     Person: {payload.get('person_name', 'Unknown')}")
-            print(f"     File: {payload.get('filename', 'Unknown')}")
-            print(f"     Confidence: {payload.get('confidence', 'N/A')}")
-            print(f"     BBox: {payload.get('bbox', 'N/A')}")
-            print(f"     Path: {payload.get('image_path', 'N/A')}")
+            
             print("-" * 80)
         
-        print(f"📊 Retrieved {len(point_list)} points")
         return point_list
         
     except Exception as e:
@@ -414,10 +371,10 @@ if __name__ == "__main__":
         # list_all_points()
         
         # Example: Search for similar faces
-        query_image = "test3.jpg"  # Update this path
+        query_image = "daisy.jpg"  # Update this path
         if os.path.exists(query_image):
             print(f"\n🔍 Searching for similar faces to: {query_image}")
-            similar_faces = search_similar_faces(query_image, limit=1, score_threshold=0.6)
+            similar_faces = search_similar_faces("face_embedding" , query_image, limit=1, score_threshold=0.1)
             
             if similar_faces:
                 print("🎯 Found similar faces:")

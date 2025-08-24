@@ -84,7 +84,7 @@ qdrant_client = QdrantClient(
 def search_similar_faces_threaded(img_path, limit=5, score_threshold=0.6):
     
     try:
-        search_results = search_similar_faces(img_path, limit=limit, score_threshold=score_threshold)
+        search_results = search_similar_faces("aia_lf_2025", img_path, limit=limit, score_threshold=score_threshold)
         print(search_results)
     
             
@@ -103,7 +103,7 @@ def search_similar_faces_threaded(img_path, limit=5, score_threshold=0.6):
 
             
 @app.post("/search-face/")
-async def search_face(file: UploadFile = File(...), threshold: float = 0.4, limit: int = 5):
+async def search_face(file: UploadFile = File(...), threshold: float = 0.3, limit: int = 5):
     """
     Search for similar faces using Qdrant vector database
     
@@ -143,9 +143,9 @@ async def search_face(file: UploadFile = File(...), threshold: float = 0.4, limi
         results = []
         for match in matches:
             results.append({
-                "name": match["person_name"],
+                "name": match["name"],
                 "distance": 1.0 - float(match["similarity_score"]),  # Convert similarity to distance
-                "bbox": match["bbox"],
+                "photo_path": match["photo_path"],
             })
         
         total_time = time.time() - start_time
@@ -166,51 +166,6 @@ async def search_face(file: UploadFile = File(...), threshold: float = 0.4, limi
         if os.path.exists(file_path):
             os.remove(file_path)
 
-# Optional: Add an endpoint to get Qdrant collection stats
-@app.get("/collection-stats/")
-async def get_collection_stats():
-    """Get statistics about the face embeddings collection"""
-    try:
-        info = qdrant_client.get_collection("face_embeddings")
-        
-        stats = {
-            "collection_name": "face_embeddings",
-            "total_points": info.points_count,
-            "indexed_vectors": info.indexed_vectors_count,
-            "status": info.status,
-            "vector_size": info.config.params.vectors.size,
-            "distance_metric": info.config.params.vectors.distance.name
-        }
-        
-        return JSONResponse(content=stats)
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error getting collection stats: {str(e)}")
-
-# Optional: Add an endpoint to check if Qdrant is available
-@app.get("/health/")
-async def health_check():
-    """Health check endpoint to verify Qdrant connection"""
-    try:
-        collections = qdrant_client.get_collections()
-        
-        health_status = {
-            "status": "healthy",
-            "qdrant_connected": True,
-            "collections_count": len(collections.collections),
-            "face_embeddings_exists": "face_embeddings" in [col.name for col in collections.collections]
-        }
-        
-        return JSONResponse(content=health_status)
-        
-    except Exception as e:
-        health_status = {
-            "status": "unhealthy",
-            "qdrant_connected": False,
-            "error": str(e)
-        }
-        
-        return JSONResponse(content=health_status, status_code=503)
 
 @app.post("/get_embed/")
 async def get_embed(file: UploadFile = File(...), db = Depends(get_db)):

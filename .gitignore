@@ -46,7 +46,7 @@ Thumbs.db
 output/
 *.jpg
 *.png
-
+*.webp
 # Test/coverage
 htmlcov/
 .tox/
