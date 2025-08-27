@@ -142,10 +142,12 @@ async def search_face(file: UploadFile = File(...), threshold: float = 0.3, limi
         # Format results for API response
         results = []
         for match in matches:
+            print(match)
             results.append({
                 "name": match["name"],
                 "distance": 1.0 - float(match["similarity_score"]),  # Convert similarity to distance
                 "photo_path": match["photo_path"],
+                "qr_code": match["qr_code"],
             })
         
         total_time = time.time() - start_time
@@ -197,8 +199,9 @@ async def get_embed(file: UploadFile = File(...), db = Depends(get_db)):
 
 if __name__ == "__main__":
     import uvicorn
+    # uvicorn.run(app, host="0.0.0.0", port=8000)
     
-    # SSL configuration
+    # # SSL configuration
     ssl_keyfile = "certs/key.pem"
     ssl_certfile = "certs/cert.pem"
     

@@ -216,7 +216,8 @@ def search_similar_faces(collection_name, query_image_path, limit=5, score_thres
                 "id": hit.id,
                 "name": hit.payload.get("name"),
                 "similarity_score": float(hit.score),
-                "photo_path": hit.payload.get("photo")
+                "photo_path": hit.payload.get("photo"),
+                "qr_code": hit.payload.get("qr_code"),
             })
         
         total_search_time = time.time() - search_start_time
